@@ -4,7 +4,8 @@ import { useState } from "react";
 export const Receive = () => {
   const [ticket, setTicket] = useState("");
 
-  async function receive() {
+  async function receive(e: React.FormEvent) {
+    e.preventDefault();
     if (ticket.length === 0) return;
     await invoke("receive_files", { ticket: ticket });
   }
