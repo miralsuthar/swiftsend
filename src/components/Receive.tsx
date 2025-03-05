@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 
 export const Receive = () => {
   const [ticket, setTicket] = useState("");
@@ -7,7 +8,14 @@ export const Receive = () => {
   async function receive(e: React.FormEvent) {
     e.preventDefault();
     if (ticket.length === 0) return;
-    await invoke("receive_files", { ticket: ticket });
+    const filePath = await open({
+      multiple: false,
+      directory: true,
+    });
+
+    if (!filePath) return;
+
+    await invoke("receive_files", { ticket: ticket, path: filePath });
   }
 
   return (

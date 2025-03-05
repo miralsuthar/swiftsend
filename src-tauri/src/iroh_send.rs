@@ -227,11 +227,15 @@ fn get_export_path(root: &Path, name: &str) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
-async fn export(db: impl iroh_blobs::store::Store, collection: Collection) -> anyhow::Result<()> {
+async fn export(
+    db: impl iroh_blobs::store::Store,
+    collection: Collection,
+    path: &PathBuf,
+) -> anyhow::Result<()> {
     println!("exporing data....");
-    let root = dirs::download_dir()
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("no download directory"))?;
+
+    let root = PathBuf::from(path);
+
     for (name, hash) in collection.iter() {
         let target = get_export_path(&root, name)?;
         if target.exists() {
@@ -521,7 +525,7 @@ pub async fn shutdown() -> anyhow::Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn receive_files(ticket: String) -> anyhow::Result<(), String> {
+pub async fn receive_files(ticket: String, path: String) -> anyhow::Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         rt.block_on(async move {
@@ -535,11 +539,9 @@ pub async fn receive_files(ticket: String) -> anyhow::Result<(), String> {
                 .secret_key(secret_key)
                 .relay_mode(RelayMode::Default);
 
-            let download_dir = dirs::download_dir()
-                .clone()
-                .ok_or_else(|| "No document directory".to_string())?;
+            let receive_path = PathBuf::from(path);
 
-            let sendme_dir = download_dir.join(".sendme");
+            let sendme_dir = receive_path.join(".sendme");
 
             let endpoint = builder.bind().await.map_err(|e| e.to_string())?;
             let dir_name = format!(".sendme-get-{}", received_ticket.hash().to_hex());
@@ -571,7 +573,9 @@ pub async fn receive_files(ticket: String) -> anyhow::Result<(), String> {
                 .await
                 .map_err(|e| e.to_string())?;
 
-            export(db, collection).await.map_err(|e| e.to_string())?;
+            export(db, collection, &receive_path)
+                .await
+                .map_err(|e| e.to_string())?;
             tokio::fs::remove_dir_all(iroh_data_dir)
                 .await
                 .map_err(|e| e.to_string())?;
