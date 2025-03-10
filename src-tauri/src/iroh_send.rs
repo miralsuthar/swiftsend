@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use console::style;
 use data_encoding::HEXLOWER;
 use futures::{future::BoxFuture, TryFutureExt};
@@ -35,6 +35,8 @@ use iroh_blobs::{
 };
 use n0_future::{future::Boxed, StreamExt};
 use rand::Rng;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 use walkdir::WalkDir;
 
@@ -84,7 +86,15 @@ pub fn canonicalized_path_to_string(
     Ok(path_str)
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct UploadProgress {
+    progress: u64,
+    total: u64,
+}
+
+#[tauri::command]
 pub async fn show_ingest_progress(
+    app: AppHandle,
     recv: async_channel::Receiver<ImportProgress>,
 ) -> anyhow::Result<()> {
     let mp = MultiProgress::new();
@@ -98,6 +108,7 @@ pub async fn show_ingest_progress(
     let mut names = BTreeMap::new();
     let mut sizes = BTreeMap::new();
     let mut pbs = BTreeMap::new();
+    let mut total_size: u64 = 0;
     loop {
         let event = recv.recv().await;
         match event {
@@ -106,13 +117,21 @@ pub async fn show_ingest_progress(
             }
             Ok(ImportProgress::Size { id, size }) => {
                 sizes.insert(id, size);
-                let total_size = sizes.values().sum::<u64>();
+                total_size = sizes.values().sum::<u64>();
                 op.set_message(format!(
                     "{} Ingesting {} files, {}\n",
                     style("[1/2]").bold().dim(),
                     sizes.len(),
                     HumanBytes(total_size)
                 ));
+                app.emit(
+                    "upload_progress",
+                    UploadProgress {
+                        progress: 0,
+                        total: total_size,
+                    },
+                )
+                .unwrap();
                 let name = names.get(&id).cloned().unwrap_or_default();
                 let pb = mp.add(ProgressBar::hidden());
                 pb.set_style(ProgressStyle::with_template(
@@ -125,11 +144,27 @@ pub async fn show_ingest_progress(
             Ok(ImportProgress::OutboardProgress { id, offset }) => {
                 if let Some(pb) = pbs.get(&id) {
                     pb.set_position(offset);
+                    app.emit(
+                        "upload_progress",
+                        UploadProgress {
+                            progress: offset,
+                            total: total_size,
+                        },
+                    )
+                    .unwrap();
                 }
             }
             Ok(ImportProgress::OutboardDone { id, .. }) => {
                 // you are not guaranteed to get any OutboardProgress
                 if let Some(pb) = pbs.remove(&id) {
+                    app.emit(
+                        "upload_progress",
+                        UploadProgress {
+                            progress: total_size,
+                            total: total_size,
+                        },
+                    )
+                    .unwrap();
                     pb.finish_and_clear();
                 }
             }
@@ -146,7 +181,9 @@ pub async fn show_ingest_progress(
     Ok(())
 }
 
+#[tauri::command]
 async fn import(
+    app: AppHandle,
     path: PathBuf,
     db: impl iroh_blobs::store::Store,
 ) -> anyhow::Result<(TempTag, u64, Collection)> {
@@ -173,7 +210,7 @@ async fn import(
         .collect::<anyhow::Result<Vec<_>>>()?;
     let (send, recv) = async_channel::bounded(32);
     let progress = iroh_blobs::util::progress::AsyncChannelProgressSender::new(send);
-    let show_progress = tokio::spawn(show_ingest_progress(recv));
+    let show_progress = tokio::spawn(show_ingest_progress(app, recv));
     // import all the files, using num_cpus workers, return names and temp tags
     let mut names_and_tags = futures_lite::stream::iter(data_sources)
         .map(|(name, path)| {
@@ -451,7 +488,7 @@ struct SendResources {
 static SEND_RESOURCES: Mutex<Option<SendResources>> = Mutex::const_new(None);
 
 #[tauri::command]
-pub async fn send_files(path: String) -> anyhow::Result<String, String> {
+pub async fn send_files(app: AppHandle, path: String) -> anyhow::Result<String, String> {
     let secret_key = SecretKey::generate(rand::rngs::OsRng);
     let mut builder = Endpoint::builder()
         .alpns(vec![iroh_blobs::protocol::ALPN.to_vec()])
@@ -484,7 +521,7 @@ pub async fn send_files(path: String) -> anyhow::Result<String, String> {
         .map_err(|e| e.to_string())?;
 
     let path = PathBuf::from(path);
-    let (temp_tag, _size, _collection) = import(path, blobs.store().clone())
+    let (temp_tag, _size, _collection) = import(app, path, blobs.store().clone())
         .await
         .map_err(|e| e.to_string())?;
 
@@ -524,8 +561,96 @@ pub async fn shutdown() -> anyhow::Result<(), String> {
     Ok(())
 }
 
+#[derive(Clone, Serialize)]
+struct ProgressUpdate {
+    progress: u64,
+    total: u64,
+}
+
 #[tauri::command]
-pub async fn receive_files(ticket: String, path: String) -> anyhow::Result<(), String> {
+async fn send_download_progress(
+    app: AppHandle,
+    recv: async_channel::Receiver<DownloadProgress>,
+    total_size: u64,
+) -> anyhow::Result<()> {
+    let mut total_done = 0;
+    let mut sizes = BTreeMap::new();
+    loop {
+        let x = recv.recv().await;
+        match x {
+            Ok(DownloadProgress::Connected) => {
+                println!("Connected to the server");
+                app.emit(
+                    "download_progress",
+                    ProgressUpdate {
+                        progress: 0,
+                        total: total_size,
+                    },
+                )
+                .unwrap();
+            }
+            Ok(DownloadProgress::FoundHashSeq { children, .. }) => {
+                println!("Found hash sequence: {:?}", children);
+            }
+            Ok(DownloadProgress::Found { id, size, .. }) => {
+                sizes.insert(id, size);
+                println!("Found file: {} {}", id, size);
+            }
+            Ok(DownloadProgress::Progress { offset, .. }) => {
+                println!("Progress: {}", offset);
+                app.emit(
+                    "download_progress",
+                    ProgressUpdate {
+                        progress: offset,
+                        total: total_size,
+                    },
+                )
+                .unwrap();
+            }
+            Ok(DownloadProgress::Done { id }) => {
+                total_done += sizes.remove(&id).unwrap_or_default();
+                println!("Done: {}", id);
+                app.emit(
+                    "download_progress",
+                    ProgressUpdate {
+                        progress: total_done,
+                        total: total_size,
+                    },
+                )
+                .unwrap();
+            }
+            Ok(DownloadProgress::AllDone(stats)) => {
+                println!("All done: {:?}", stats);
+                app.emit(
+                    "download_progress",
+                    ProgressUpdate {
+                        progress: stats.bytes_read,
+                        total: total_size,
+                    },
+                )
+                .unwrap();
+                break;
+            }
+            Ok(DownloadProgress::Abort(e)) => {
+                println!("download  aborted: {:?}", e);
+                anyhow::bail!("Download aborted");
+            }
+            Err(e) => {
+                println!("Error: {}", e);
+                anyhow::bail!("Error receiving progress: {}", e);
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn receive_files(
+    app: AppHandle,
+    ticket: String,
+    path: String,
+) -> anyhow::Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         rt.block_on(async move {
@@ -561,8 +686,18 @@ pub async fn receive_files(ticket: String, path: String) -> anyhow::Result<(), S
                 format: received_ticket.format(),
             };
 
-            let (send, _recv) = async_channel::bounded(32);
+            let (send, recv) = async_channel::bounded(32);
             let progress = iroh_blobs::util::progress::AsyncChannelProgressSender::new(send);
+
+            let (_hash_seq, sizes) =
+                get_hash_seq_and_sizes(&connection, &hash_and_format.hash, 1024 * 1024 * 32)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            let total_size = sizes.iter().sum::<u64>();
+            let total_files = sizes.len().saturating_sub(1);
+            let payload_size = sizes.iter().skip(1).sum::<u64>();
+
+            let _task = tokio::spawn(send_download_progress(app, recv, total_size));
 
             let get_conn = || async move { Ok(connection) };
             iroh_blobs::get::db::get_to_db(&db, get_conn, &hash_and_format, progress)
