@@ -3,6 +3,8 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { useFile } from "../contexts/FileContext";
 import { AnimatePresence, motion } from "framer-motion";
+import { platform } from "@tauri-apps/plugin-os";
+import folderImage from "../assets/folder.svg";
 
 export const DragAndDrop = () => {
   const { path, setPath } = useFile();
@@ -10,6 +12,8 @@ export const DragAndDrop = () => {
   const [progress, setProgress] = useState(0);
   const [total, setTotal] = useState(100);
   const [isUploading, setIsUploading] = useState(false);
+
+  const currentPlatform = platform();
 
   const handleBrowseFolder = async () => {
     const filePath = await open({
@@ -53,11 +57,20 @@ export const DragAndDrop = () => {
       const { progress, total } = event.payload as any;
       setProgress(progress);
       setTotal(total);
-    });
 
-    if (progress >= total) {
-      setTimeout(() => setIsUploading(false), 500);
-    }
+      // Start uploading when we receive the first progress event
+      if (progress === 0) {
+        setIsUploading(true);
+      }
+
+      // Reset state when upload is complete
+      if (progress >= total) {
+        setTimeout(() => {
+          setIsUploading(false);
+          setProgress(0);
+        }, 500);
+      }
+    });
 
     return () => {
       unlisten.then((fn) => fn());
@@ -84,21 +97,61 @@ export const DragAndDrop = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (path) {
-      setIsUploading(true);
-    }
-  }, [path]);
-
   const percent = Math.min(100, (progress / total) * 100).toFixed(2);
 
   return (
     <div>
-      <div className="w-max p-[90px] flex items-center justify-center bg-[#F4F7FC] rouned-lg rounded-lg max-w-[382px] h-[211px] border border-dashed border-gray-300">
+      <div className="p-[90px] flex items-center justify-center bg-[#F4F7FC] rouned-lg rounded-lg w-[382px] h-[211px] border border-dashed border-gray-300">
         {path ? (
-          <div>
-            <p className="text-[#4C5EF9] font-semibold">File Selected</p>
-            <p className="text-[#595959] w-full text-wrap">{path}</p>
+          <div className="flex flex-col items-center justify-center gap-2">
+            <motion.div
+              initial={{
+                scale: 0,
+                opacity: 0,
+              }}
+              animate={{
+                scale: 1,
+                opacity: 1,
+              }}
+              transition={{
+                type: "spring",
+                bounce: 0.25,
+                damping: 10,
+                stiffness: 100,
+              }}
+              exit={{
+                scale: 0,
+                opacity: 0,
+              }}
+              className="w-20"
+            >
+              <img className="w-full" src={folderImage} />
+            </motion.div>
+            <motion.p
+              initial={{
+                opacity: 0,
+                scale: 0,
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+              }}
+              transition={{
+                duration: 0.5,
+              }}
+              exit={{
+                opacity: 0,
+                scale: 0,
+              }}
+            >
+              {path
+                .split(currentPlatform === "windows" ? "\\" : "/")
+                [
+                  path.split(currentPlatform === "windows" ? "\\" : "/")
+                    .length - 1
+                ]?.split(".")[0]
+                ?.substring(0, 20)}
+            </motion.p>
           </div>
         ) : (
           <div className="text-sm flex flex-col items-center justify-center gap-3 ">
