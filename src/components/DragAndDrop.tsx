@@ -15,6 +15,10 @@ export const DragAndDrop = () => {
 
   const currentPlatform = platform();
 
+  const handleRemove = () => {
+    setPath("");
+  };
+
   const handleBrowseFolder = async () => {
     const filePath = await open({
       multiple: false,
@@ -100,7 +104,7 @@ export const DragAndDrop = () => {
   const percent = Math.min(100, (progress / total) * 100).toFixed(2);
 
   return (
-    <div>
+    <div className="relative overflow-hidden">
       <div className="p-[90px] flex items-center justify-center bg-[#F4F7FC] rouned-lg rounded-lg w-[382px] h-[211px] border border-dashed border-gray-300">
         {path ? (
           <div className="flex flex-col items-center justify-center gap-2">
@@ -143,14 +147,9 @@ export const DragAndDrop = () => {
                 opacity: 0,
                 scale: 0,
               }}
+              className="text-center"
             >
-              {path
-                .split(currentPlatform === "windows" ? "\\" : "/")
-                [
-                  path.split(currentPlatform === "windows" ? "\\" : "/")
-                    .length - 1
-                ]?.split(".")[0]
-                ?.substring(0, 20)}
+              {path.substring(path.lastIndexOf("/") + 1)}
             </motion.p>
           </div>
         ) : (
@@ -196,6 +195,31 @@ export const DragAndDrop = () => {
               transition={{ ease: "linear" }}
               className="bg-[#4C5EF9] h-2 rounded-lg"
             />
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {path && (
+          <motion.div
+            initial={{
+              opacity: 0,
+            }}
+            transition={{
+              duration: 0.5,
+            }}
+            exit={{
+              opacity: 0,
+            }}
+            className="absolute top-0 left-0 right-0 bottom-0 flex items-center justify-center"
+            whileHover={{ opacity: 1 }}
+          >
+            <div className="w-full h-full bg-white blur-xl" />
+            <motion.button
+              onClick={handleRemove}
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-1 rounded-md bg-[#4C5EF9] cursor-pointer text-white"
+            >
+              Remove
+            </motion.button>
           </motion.div>
         )}
       </AnimatePresence>

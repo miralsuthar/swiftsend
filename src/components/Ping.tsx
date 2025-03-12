@@ -3,12 +3,13 @@ import { useFile } from "../contexts/FileContext";
 import { cn } from "../utils/cn";
 
 export const Ping = () => {
-  const { connected, setConnected, setPath } = useFile();
+  const { connected, setConnected, setPath, setTicket } = useFile();
 
   const handlePing = async () => {
     await invoke("shutdown");
     setConnected(false);
     setPath("");
+    setTicket("");
   };
 
   return (
