@@ -3,7 +3,6 @@ import { DragAndDrop } from "./components/DragAndDrop";
 import { FileProvier, useFile } from "./contexts/FileContext";
 import { Receive } from "./components/Receive";
 import { Ping } from "./components/Ping";
-import { useState } from "react";
 import { CopyText } from "./components/CopyText";
 
 function MainContent() {
