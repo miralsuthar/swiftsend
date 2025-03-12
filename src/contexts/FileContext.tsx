@@ -5,6 +5,8 @@ export type FileContextType = {
   connected: boolean;
   setPath: (path: string) => void;
   setConnected: (connected: boolean) => void;
+  ticket: string;
+  setTicket: (ticket: string) => void;
 };
 
 export const FileContext = createContext<FileContextType | undefined>(
@@ -14,8 +16,11 @@ export const FileContext = createContext<FileContextType | undefined>(
 export const FileProvier = ({ children }: { children: ReactNode }) => {
   const [path, setPath] = useState("");
   const [connected, setConnected] = useState(false);
+  const [ticket, setTicket] = useState("");
   return (
-    <FileContext.Provider value={{ path, setPath, connected, setConnected }}>
+    <FileContext.Provider
+      value={{ path, setPath, connected, setConnected, ticket, setTicket }}
+    >
       {children}
     </FileContext.Provider>
   );

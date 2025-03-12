@@ -46,6 +46,7 @@ thiserror = "2.0.11"
 futures = "0.3.31"
 dirs = "6.0.0"
 iroh-bytes = "0.15.0"
+tauri-plugin-os = "2"
 
 [dev-dependencies]
 duct = "0.13.6"

@@ -1,1 +1,5 @@
 @import "tailwindcss";
+
+.scrollbar {
+  scrollbar-width: none; /* Firefox */
+}

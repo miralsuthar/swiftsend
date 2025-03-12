@@ -3,6 +3,8 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { useFile } from "../contexts/FileContext";
 import { AnimatePresence, motion } from "framer-motion";
+import { platform } from "@tauri-apps/plugin-os";
+import folderImage from "../assets/folder.svg";
 
 export const DragAndDrop = () => {
   const { path, setPath } = useFile();
@@ -10,6 +12,12 @@ export const DragAndDrop = () => {
   const [progress, setProgress] = useState(0);
   const [total, setTotal] = useState(100);
   const [isUploading, setIsUploading] = useState(false);
+
+  const currentPlatform = platform();
+
+  const handleRemove = () => {
+    setPath("");
+  };
 
   const handleBrowseFolder = async () => {
     const filePath = await open({
@@ -53,11 +61,20 @@ export const DragAndDrop = () => {
       const { progress, total } = event.payload as any;
       setProgress(progress);
       setTotal(total);
-    });
 
-    if (progress >= total) {
-      setTimeout(() => setIsUploading(false), 500);
-    }
+      // Start uploading when we receive the first progress event
+      if (progress === 0) {
+        setIsUploading(true);
+      }
+
+      // Reset state when upload is complete
+      if (progress >= total) {
+        setTimeout(() => {
+          setIsUploading(false);
+          setProgress(0);
+        }, 500);
+      }
+    });
 
     return () => {
       unlisten.then((fn) => fn());
@@ -84,21 +101,56 @@ export const DragAndDrop = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (path) {
-      setIsUploading(true);
-    }
-  }, [path]);
-
   const percent = Math.min(100, (progress / total) * 100).toFixed(2);
 
   return (
-    <div>
-      <div className="w-max p-[90px] flex items-center justify-center bg-[#F4F7FC] rouned-lg rounded-lg max-w-[382px] h-[211px] border border-dashed border-gray-300">
+    <div className="relative overflow-hidden">
+      <div className="p-[90px] flex items-center justify-center bg-[#F4F7FC] rouned-lg rounded-lg w-[382px] h-[211px] border border-dashed border-gray-300">
         {path ? (
-          <div>
-            <p className="text-[#4C5EF9] font-semibold">File Selected</p>
-            <p className="text-[#595959] w-full text-wrap">{path}</p>
+          <div className="flex flex-col items-center justify-center gap-2">
+            <motion.div
+              initial={{
+                scale: 0,
+                opacity: 0,
+              }}
+              animate={{
+                scale: 1,
+                opacity: 1,
+              }}
+              transition={{
+                type: "spring",
+                bounce: 0.25,
+                damping: 10,
+                stiffness: 100,
+              }}
+              exit={{
+                scale: 0,
+                opacity: 0,
+              }}
+              className="w-20"
+            >
+              <img className="w-full" src={folderImage} />
+            </motion.div>
+            <motion.p
+              initial={{
+                opacity: 0,
+                scale: 0,
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+              }}
+              transition={{
+                duration: 0.5,
+              }}
+              exit={{
+                opacity: 0,
+                scale: 0,
+              }}
+              className="text-center"
+            >
+              {path.substring(path.lastIndexOf("/") + 1)}
+            </motion.p>
           </div>
         ) : (
           <div className="text-sm flex flex-col items-center justify-center gap-3 ">
@@ -143,6 +195,31 @@ export const DragAndDrop = () => {
               transition={{ ease: "linear" }}
               className="bg-[#4C5EF9] h-2 rounded-lg"
             />
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {path && (
+          <motion.div
+            initial={{
+              opacity: 0,
+            }}
+            transition={{
+              duration: 0.5,
+            }}
+            exit={{
+              opacity: 0,
+            }}
+            className="absolute top-0 left-0 right-0 bottom-0 flex items-center justify-center"
+            whileHover={{ opacity: 1 }}
+          >
+            <div className="w-full h-full bg-white blur-xl" />
+            <motion.button
+              onClick={handleRemove}
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-1 rounded-md bg-[#4C5EF9] cursor-pointer text-white"
+            >
+              Remove
+            </motion.button>
           </motion.div>
         )}
       </AnimatePresence>

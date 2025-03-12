@@ -7,8 +7,7 @@ import { useState } from "react";
 import { CopyText } from "./components/CopyText";
 
 function MainContent() {
-  const { path, setConnected } = useFile();
-  const [ticket, setTicket] = useState("");
+  const { path, setConnected, ticket, setTicket } = useFile();
 
   const shareFileHandler = async () => {
     setConnected(true);
