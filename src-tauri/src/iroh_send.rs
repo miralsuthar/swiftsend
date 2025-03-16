@@ -6,6 +6,7 @@ use std::{
     str::FromStr,
     sync::Arc,
     time::Duration,
+    u64, usize,
 };
 
 use anyhow::{anyhow, Context};
@@ -109,15 +110,22 @@ pub async fn show_ingest_progress(
     let mut sizes = BTreeMap::new();
     let mut pbs = BTreeMap::new();
     let mut total_size: u64 = 0;
+    let mut total_progress: u64 = 0; // total progress for the entire upload
+
+    let mut progress_bar = mp.add(ProgressBar::new(0)); // a single progress bar for the entire
+
     loop {
         let event = recv.recv().await;
         match event {
             Ok(ImportProgress::Found { id, name }) => {
+                println!("Found file: {} {}", id, name);
                 names.insert(id, name);
             }
             Ok(ImportProgress::Size { id, size }) => {
                 sizes.insert(id, size);
+                println!("Size: {} {}", id, size);
                 total_size = sizes.values().sum::<u64>();
+                println!("Total size: {}", total_size);
                 op.set_message(format!(
                     "{} Ingesting {} files, {}\n",
                     style("[1/2]").bold().dim(),
@@ -127,7 +135,7 @@ pub async fn show_ingest_progress(
                 app.emit(
                     "upload_progress",
                     UploadProgress {
-                        progress: 0,
+                        progress: total_progress,
                         total: total_size,
                     },
                 )
@@ -143,11 +151,13 @@ pub async fn show_ingest_progress(
             }
             Ok(ImportProgress::OutboardProgress { id, offset }) => {
                 if let Some(pb) = pbs.get(&id) {
+                    total_progress += offset;
                     pb.set_position(offset);
+                    println!("Progress: {} {}", id, offset);
                     app.emit(
                         "upload_progress",
                         UploadProgress {
-                            progress: offset,
+                            progress: total_progress,
                             total: total_size,
                         },
                     )
@@ -157,6 +167,7 @@ pub async fn show_ingest_progress(
             Ok(ImportProgress::OutboardDone { id, .. }) => {
                 // you are not guaranteed to get any OutboardProgress
                 if let Some(pb) = pbs.remove(&id) {
+                    println!("Done: {}", id);
                     app.emit(
                         "upload_progress",
                         UploadProgress {
@@ -572,9 +583,12 @@ async fn send_download_progress(
     app: AppHandle,
     recv: async_channel::Receiver<DownloadProgress>,
     total_size: u64,
+    total_files: usize,
 ) -> anyhow::Result<()> {
     let mut total_done = 0;
     let mut sizes = BTreeMap::new();
+    let mut last_offsets = BTreeMap::new();
+
     loop {
         let x = recv.recv().await;
         match x {
@@ -590,26 +604,21 @@ async fn send_download_progress(
                 .unwrap();
             }
             Ok(DownloadProgress::FoundHashSeq { children, .. }) => {
-                println!("Found hash sequence: {:?}", children);
+                // println!("Found hash sequence: {:?}", children);
             }
             Ok(DownloadProgress::Found { id, size, .. }) => {
                 sizes.insert(id, size);
-                println!("Found file: {} {}", id, size);
+                last_offsets.insert(id, 0u64);
             }
-            Ok(DownloadProgress::Progress { offset, .. }) => {
-                println!("Progress: {}", offset);
-                app.emit(
-                    "download_progress",
-                    ProgressUpdate {
-                        progress: offset,
-                        total: total_size,
-                    },
-                )
-                .unwrap();
-            }
-            Ok(DownloadProgress::Done { id }) => {
-                total_done += sizes.remove(&id).unwrap_or_default();
-                println!("Done: {}", id);
+            Ok(DownloadProgress::Progress { id, offset, .. }) => {
+                let old_offset = last_offsets.get(&id).copied().unwrap_or(0);
+                let diff = offset.saturating_sub(old_offset);
+                total_done += diff;
+
+                last_offsets.insert(id, offset);
+
+                println!("Progress: {}", total_done);
+                // println!("Progress: {}", total_progress);
                 app.emit(
                     "download_progress",
                     ProgressUpdate {
@@ -619,12 +628,27 @@ async fn send_download_progress(
                 )
                 .unwrap();
             }
+            Ok(DownloadProgress::Done { id }) => {
+                last_offsets.remove(&id);
+                sizes.remove(&id).unwrap_or_default();
+                println!("Done: {}", id);
+                if (total_files + 1 == id as usize) {
+                    app.emit(
+                        "download_progress",
+                        ProgressUpdate {
+                            progress: total_size,
+                            total: total_size,
+                        },
+                    )
+                    .unwrap();
+                }
+            }
             Ok(DownloadProgress::AllDone(stats)) => {
                 println!("All done: {:?}", stats);
                 app.emit(
                     "download_progress",
                     ProgressUpdate {
-                        progress: stats.bytes_read,
+                        progress: total_size,
                         total: total_size,
                     },
                 )
@@ -697,7 +721,10 @@ pub async fn receive_files(
             let total_files = sizes.len().saturating_sub(1);
             let payload_size = sizes.iter().skip(1).sum::<u64>();
 
-            let _task = tokio::spawn(send_download_progress(app, recv, total_size));
+            println!("Total size: {}", total_size);
+            println!("Total files: {}", total_files);
+
+            tokio::spawn(send_download_progress(app, recv, total_size, total_files));
 
             let get_conn = || async move { Ok(connection) };
             iroh_blobs::get::db::get_to_db(&db, get_conn, &hash_and_format, progress)
