@@ -6,13 +6,14 @@ import { AnimatePresence, motion } from "framer-motion";
 import folderImage from "../assets/folder.svg";
 
 export const DragAndDrop = () => {
-  const { path, setPath } = useFile();
+  const { path, setPath, connected } = useFile();
 
   const [progress, setProgress] = useState(0);
   const [total, setTotal] = useState(100);
   const [isUploading, setIsUploading] = useState(false);
 
   const handleRemove = () => {
+    if (connected) return;
     setPath("");
   };
 
@@ -196,7 +197,7 @@ export const DragAndDrop = () => {
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {path && (
+        {!connected && path && (
           <motion.div
             initial={{
               opacity: 0,

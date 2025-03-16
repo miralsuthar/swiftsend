@@ -6,9 +6,10 @@ import { Ping } from "./components/Ping";
 import { CopyText } from "./components/CopyText";
 
 function MainContent() {
-  const { path, setConnected, ticket, setTicket } = useFile();
+  const { path, setConnected, connected, ticket, setTicket } = useFile();
 
   const shareFileHandler = async () => {
+    if (connected) return;
     setConnected(true);
     await invoke("send_files", { path: path }).then((res) => {
       setTicket(res as string);
@@ -23,8 +24,8 @@ function MainContent() {
       <div className="flex items-center justify-between">
         <DragAndDrop />
         <button
-          className="text-white bg-[#4C5EF9] px-[30px] py-[10px] rounded-lg cursor-pointer disabled:bg-[#D6D6D6]"
-          disabled={path.length === 0}
+          className="text-white bg-[#4C5EF9] px-[30px] py-[10px] rounded-lg cursor-pointer disabled:bg-[#D6D6D6] disabled:cursor-not-allowed"
+          disabled={path.length === 0 || connected}
           onClick={shareFileHandler}
         >
           Share
