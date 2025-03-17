@@ -3,7 +3,6 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { useFile } from "../contexts/FileContext";
 import { AnimatePresence, motion } from "framer-motion";
-import { platform } from "@tauri-apps/plugin-os";
 import folderImage from "../assets/folder.svg";
 
 export const DragAndDrop = () => {
@@ -12,8 +11,6 @@ export const DragAndDrop = () => {
   const [progress, setProgress] = useState(0);
   const [total, setTotal] = useState(100);
   const [isUploading, setIsUploading] = useState(false);
-
-  const currentPlatform = platform();
 
   const handleRemove = () => {
     if (connected) return;
